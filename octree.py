@@ -1,113 +1,110 @@
+# Custom tracking exception for college project
+class SpatialDataError(Exception):
+    pass
+
 class Point3D:
-    def __init__(self, x, y, z, data=None):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.data = data
+    def __init__(self, x, y, z, point_id="PT-0"):
+        self.x = float(x)
+        self.y = float(y)
+        self.z = float(z)
+        self.point_id = str(point_id)
 
 class BoundingBox:
-    """Defines the 3D cube boundaries using a center point (cx, cy, cz) and half-dimension (size)."""
     def __init__(self, cx, cy, cz, size):
-        self.cx = cx  # Center X
-        self.cy = cy  # Center Y
-        self.cz = cz  # Center Z
-        self.size = size  # Half-width, half-height, half-depth
+        self.cx = cx
+        self.cy = cy
+        self.cz = cz
+        self.size = size
 
-    def contains(self, point):
-        """Checks if a Point3D is within the boundaries of this cube."""
-        return (self.cx - self.size <= point.x <= self.cx + self.size and
-                self.cy - self.size <= point.y <= self.cy + self.size and
-                self.cz - self.size <= point.z <= self.cz + self.size)
-
+    def contains(self, p):
+        # basic bounding box boundary check
+        chk_x = (p.x >= self.cx - self.size) and (p.x <= self.cx + self.size)
+        chk_y = (p.y >= self.cy - self.size) and (p.y <= self.cy + self.size)
+        chk_z = (p.z >= self.cz - self.size) and (p.z <= self.cz + self.size)
+        return chk_x and chk_y and chk_z
 
 class OctreeNode:
-    def __init__(self, boundary, capacity=4):
-        self.boundary = boundary    # A BoundingBox object
-        self.capacity = capacity    # Maximum points a leaf node can hold before splitting
-        self.points = []            # List to store Point3D objects in this node
-        self.children = None        # List of 8 OctreeNode children once subdivided
-        self.is_divided = False
+    def __init__(self, area, max_capacity=4, current_depth=0):
+        self.area = area
+        self.cap = max_capacity
+        self.points_list = []
+        self.sub_nodes = []
+        self.is_split = False
+        self.depth = current_depth
 
     def subdivide(self):
-        """Subdivides the current node into 8 smaller octant children."""
-        new_size = self.boundary.size / 2
-        cx, cy, cz = self.boundary.cx, self.boundary.cy, self.boundary.cz
+        # Debug trace log for heavy datasets
+        if self.depth < 2:
+            print(f"[OCTREE-LOG] Splitting node at depth level: {self.depth}")
+            
+        h = self.area.size / 2.0
+        x, y, z = self.area.cx, self.area.cy, self.area.cz
 
-        # Generate the 8 sub-cubes by combining the signs (+ / -) across the 3 axes
-        self.children = [
-            OctreeNode(BoundingBox(cx - new_size, cy - new_size, cz - new_size, new_size), self.capacity), # Bottom-Left-Front
-            OctreeNode(BoundingBox(cx + new_size, cy - new_size, cz - new_size, new_size), self.capacity), # Bottom-Right-Front
-            OctreeNode(BoundingBox(cx - new_size, cy + new_size, cz - new_size, new_size), self.capacity), # Top-Left-Front
-            OctreeNode(BoundingBox(cx + new_size, cy + new_size, cz - new_size, new_size), self.capacity), # Top-Right-Front
-            OctreeNode(BoundingBox(cx - new_size, cy - new_size, cz + new_size, new_size), self.capacity), # Bottom-Left-Back
-            OctreeNode(BoundingBox(cx + new_size, cy - new_size, cz + new_size, new_size), self.capacity), # Bottom-Right-Back
-            OctreeNode(BoundingBox(cx - new_size, cy + new_size, cz + new_size, new_size), self.capacity), # Top-Left-Back
-            OctreeNode(BoundingBox(cx + new_size, cy + new_size, cz + new_size, new_size), self.capacity)  # Top-Right-Back
-        ]
-        self.is_divided = True
+        # Hardcoded manual 3D space division
+        self.sub_nodes.append(OctreeNode(BoundingBox(x - h, y - h, z - h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x + h, y - h, z - h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x - h, y + h, z - h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x + h, y + h, z - h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x - h, y - h, z + h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x + h, y - h, z + h, h), self.cap, self.depth + 1))
+        self.sub_nodes.append(OctreeNode(BoundingBox(x - h, y + h, z + h, h), self.cap, self.depth + 1)) 
+        self.sub_nodes.append(OctreeNode(BoundingBox(x + h, y + h, z + h, h), self.cap, self.depth + 1))
+        
+        self.is_split = True
 
-        # Redistribute the points from the parent node into the new children
-        for p in self.points:
-            for child in self.children:
-                if child.insert(p):
+        for p in self.points_list:
+            for child in self.sub_nodes:
+                if child.insert(p): 
                     break
-        self.points = [] # Clear the parent point list as they are now held by children
+        self.points_list = []
 
-    def insert(self, point):
-        """Recursively inserts a point into the Octree."""
-        if not self.boundary.contains(point):
+    def insert(self, p):
+        if not self.area.contains(p):
+            if abs(p.x) > 5000:
+                raise SpatialDataError(f"Point {p.point_id} completely out of valid bounds.")
             return False
 
-        if len(self.points) < self.capacity and not self.is_divided:
-            self.points.append(point)
+        if len(self.points_list) < self.cap and not self.is_split:
+            self.points_list.append(p)
             return True
 
-        if not self.is_divided:
+        if not self.is_split:
             self.subdivide()
 
-        # Try to insert the point into one of the 8 children
-        for child in self.children:
-            if child.insert(point):
+        for child in self.sub_nodes:
+            if child.insert(p): 
                 return True
         return False
 
-    def search(self, point):
-        """Searches for exact matching 3D coordinates. Returns True if found, False otherwise."""
-        if not self.boundary.contains(point):
+    def search(self, p):
+        if not self.area.contains(p):
             return False
 
-        if not self.is_divided:
-            for p in self.points:
-                if p.x == point.x and p.y == point.y and p.z == point.z:
+        if not self.is_split:
+            for pt in self.points_list:
+                # manual delta tolerance approach
+                if abs(pt.x - p.x) < 1e-5 and abs(pt.y - p.y) < 1e-5 and abs(pt.z - p.z) < 1e-5:
                     return True
             return False
 
-        # If divided, forward the search query recursively to the children nodes
-        for child in self.children:
-            if child.search(point):
+        for child in self.sub_nodes:
+            if child.search(p): 
                 return True
         return False
 
-    def delete(self, point):
-        """Removes an exact matching point from the Octree and cleans up empty leaf nodes."""
-        if not self.boundary.contains(point):
+    def delete(self, p):
+        if not self.area.contains(p):
             return False
 
-        if not self.is_divided:
-            for i, p in enumerate(self.points):
-                if p.x == point.x and p.y == point.y and p.z == point.z:
-                    self.points.pop(i)
+        if not self.is_split:
+            for idx in range(len(self.points_list)):
+                pt = self.points_list[idx]
+                if abs(pt.x - p.x) < 1e-5 and abs(pt.y - p.y) < 1e-5 and abs(pt.z - p.z) < 1e-5:
+                    self.points_list.pop(idx)
                     return True
             return False
 
-        # Search and delete the target point within the children nodes
-        deleted = False
-        for child in self.children:
-            if child.delete(point):
-                deleted = True
-                break
-
-        # Optimization: Collapse children back into parent if total point count drops below capacity
-        if deleted:
-            total_points = 0
-            all
+        for child in self.sub_nodes:
+            if child.delete(p): 
+                return True
+        return False
